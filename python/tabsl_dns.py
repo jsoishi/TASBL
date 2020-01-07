@@ -1,67 +1,121 @@
-import numpy as np
-from mpi4py import MPI
 import time
+from configparser import ConfigParser
+from pathlib import Path
+import sys
+import logging
 
-from dedalus import public as de
+import numpy as np
+
+import dedalus.public as de
+from dedalus.tools  import post
 from dedalus.extras import flow_tools
 
-import logging
+
+#from filter_field_iso import filter_field
+
 logger = logging.getLogger(__name__)
 
+# Parses .cfg filename passed to script
+config_file = Path(sys.argv[-1])
+
+# Parse .cfg file to set global parameters for script
+runconfig = ConfigParser()
+runconfig.read(str(config_file))
 
 # Parameters
-Lx, Ly, Lz = (25., 25., 1.)
-nx, ny ,nz = (64, 64, 16)
-epsilon = 0.8
-Pr = 1.0
-Re = 10.
-Ra = 17
+params = runconfig['params']
+nx = params.getint('nx')
+ny = params.getint('ny')
+nz = params.getint('nz')
+Lx = params.getfloat('Lx')
+Ly = params.getfloat('Ly')
+Lz = params.getfloat('Lz')
+Re = params.getfloat('Re')
+Pr = params.getfloat('Pr')
+Ra = params.getfloat('Ra')
+tau = params.getfloat('tau') # characteristic scale for mask
+ampl = params.getfloat('ampl') # IC amplitude
 
+run_params = runconfig['run']
+stop_wall_time = run_params.getfloat('stop_wall_time')
+stop_sim_time = run_params.getfloat('stop_sim_time')
+stop_iteration = run_params.getint('stop_iteration')
+dt = run_params.getfloat('dt')
+
+threeD = True
+if nx == 0:
+    threeD = False
+    logger.info("Running in 2D")
+else:
+    logger.info("Running in 3D")
 # Create bases and domain
 start_init_time = time.time()
-x_basis = de.Fourier('x', nx, interval=(0, Lx), dealias=3/2)
 y_basis = de.Fourier('y', ny, interval=(0, Ly), dealias=3/2)
 z_basis = de.Laguerre('z', nz, dealias=3/2)
-domain = de.Domain([x_basis, y_basis, z_basis], grid_dtype=np.float64)
+bases = [y_basis, z_basis]
+if threeD:
+    x_basis = de.Fourier('x', nx, interval=(0, Lx), dealias=3/2)
+    bases.insert(0,x_basis)
+
+domain = de.Domain(bases, grid_dtype=np.float64)
 
 # 2D Boussinesq hydrodynamics
-problem = de.IVP(domain, variables=['p','b','u','v','w','bz','uz','vz','wz'], time='t')
+problem = de.IVP(domain, variables=['p','θ','u','v','w','θz','uz','vz','wz'], time='t')
 problem.parameters['Ra'] = Ra
 problem.parameters['Re'] = Re
 problem.parameters['Pr'] = Pr
+problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))'
+problem.substitutions['Uz'] = '-Pr'
+problem.substitutions['T0'] = 'Ra*exp(-Pr*z)'
+problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)'
 
-problem.add_equation("dx(u) + dy(v) + wz = 0")
-problem.add_equation("dt(b) - dx(dx(b)) + dy(dy(b)) + dz(bz)             = - u*dx(b) - v*dy(b) - w*bz")
-problem.add_equation("dt(u) - Pr*(dx(dx(u)) + dy(dy(u)) + dz(uz)) + dx(p)     = - u*dx(u) - v*dy(u) - w*uz")
-problem.add_equation("dt(v) - Pr*(dx(dx(v)) + dy(dy(v)) + dz(vz)) + dy(p)     = - u*dx(v) - v*dy(v) - w*vz")
-problem.add_equation("dt(w) - Pr*(dx(dx(w)) + dy(dy(w)) + dz(wz)) + dz(p) - Pr*Ra*b = - u*dx(w) - v*dy(w) - w*wz")
-problem.add_equation("bz - dz(b) = 0")
-problem.add_equation("uz - dz(u) = 0")
-problem.add_equation("vz - dz(v) = 0")
-problem.add_equation("wz - dz(w) = 0")
+#problem.substitutions['udotgradU_y'] = ''
+#problem.substitutions['udotgradU_z'] = ''
 
-problem.add_bc("left(b) = Ra")
+if threeD:
+    problem.substitutions['udotgradU_x'] = 'w*dx(Ux)'
+    problem.substitutions['Lap(A,Az)'] = 'dx(dx(A)) + dy(dy(A)) + dz(Az)'
+    problem.substitutions['Udotgrad(A)'] = 'Ux*dx(A) + Uz*dz(A)'
+    problem.substitutions['udotgrad(A,Az)'] = 'u*dx(A) + v*dy(A) + w*Az'
+else:
+    problem.substitutions['udotgradU_x'] = '0'
+    problem.substitutions['Lap(A,Az)'] = 'dy(dy(A)) + dz(Az)'
+    problem.substitutions['Udotgrad(A)'] = 'Uz*dz(A)'
+    problem.substitutions['udotgrad(A,Az)'] = 'v*dy(A) + w*Az'
+
+if threeD:
+    problem.add_equation("dx(u) + dy(v) + wz = 0")
+    problem.add_equation("dt(u) + udotgradU_x + Udotgrad(u) - Pr*Lap(u,uz) + Pr*dx(p)     = -udotgrad(u,uz)")
+else:
+    problem.add_equation("dy(v) + wz = 0")
+    problem.add_equation("dt(u) + udotgradU_x + Udotgrad(u) - Pr*Lap(u,uz) = -udotgrad(u,uz)")
+
+problem.add_equation("dt(v) + Udotgrad(v) - Pr*Lap(v,vz) + Pr*dy(p)     = -udotgrad(v,vz)")
+problem.add_equation("dt(w) + Udotgrad(w) - Pr*Lap(w,wz) + Pr*dz(p) - Pr*Ra*θ = -udotgrad(w,wz)")
+problem.add_equation("dt(θ) + w*T0z - Pr*dz(θ) - Lap(θ,θz) = -udotgrad(θ,θz)")
+
+problem.add_equation("θz - dz(θ) = 0", tau=False)
+problem.add_equation("uz - dz(u) = 0", tau=False)
+problem.add_equation("vz - dz(v) = 0", tau=False)
+problem.add_equation("wz - dz(w) = 0", tau=False)
+
+problem.add_bc("left(θ) = 0")
 problem.add_bc("left(u) = 0")
 problem.add_bc("left(v) = 0")
-problem.add_bc("left(w) = -Pr")
-problem.add_bc("right(b) = 0")
-problem.add_bc("right(u) = Pr*Re")
-problem.add_bc("right(v) = 0", condition="(nx != 0) or (ny != 0)")
-problem.add_bc("right(w) = -Pr")
-problem.add_bc("left(p) = 0", condition="(nx == 0) and (ny == 0)")
+problem.add_bc("left(w) = 0", condition="(ny != 0)")
+problem.add_bc("left(p) = 0", condition="(ny == 0)")
 
 # Build solver
 solver = problem.build_solver(de.timesteppers.MCNAB2)
 logger.info('Solver built')
 
 # Initial conditions
-z = domain.grid(2)
-u = solver.state['u']
-uz = solver.state['uz']
-w = solver.state['v']
-wz = solver.state['vz']
-b = solver.state['b']
-bz = solver.state['bz']
+if threeD:
+    z = domain.grid(2)
+else:
+    z = domain.grid(1)
+θ = solver.state['θ']
+θz = solver.state['θz']
 
 # Random perturbations, initialized globally for same results in parallel
 gshape = domain.dist.grid_layout.global_shape(scales=1)
@@ -70,41 +124,47 @@ rand = np.random.RandomState(seed=23)
 noise = rand.standard_normal(gshape)[slices]
 
 ### Initial conditions
-
-# Velocity
-u['g'] = Pr*Re*(1-np.exp(-z))
-u.differentiate('z', out=uz)
-
-w['g'] = -Pr
-
 # Thermal: backtground + perturbations damped at wall
-zb, zt = z_basis.interval
-pert =  1e-3 * noise * (zt - z) * (z - zb)
-b['g'] = Ra*np.exp(-Pr*z)
-b.differentiate('z', out=bz)
+
+gshape = domain.dist.grid_layout.global_shape(scales=1)
+slices = domain.dist.grid_layout.slices(scales=1)
+rand = np.random.RandomState(seed=23)
+noise = rand.standard_normal(gshape)[slices]
+
+mask = z/tau * np.exp(1-z/tau)
+
+θ['g'] = ampl * noise * mask 
+θ.differentiate('z', out=θz)
 
 # Integration parameters
-solver.stop_sim_time = 100
-solver.stop_wall_time = 60 * 60.
-solver.stop_iteration = np.inf
+solver.stop_sim_time = stop_sim_time
+solver.stop_wall_time = stop_wall_time
+solver.stop_iteration = stop_iteration
 
 # Analysis
 snap = solver.evaluator.add_file_handler('snapshots', sim_dt=0.2, max_writes=10)
-snap.add_task("interp(p, z=0)", scales=1, name='p midplane')
-snap.add_task("interp(b, z=0)", scales=1, name='b midplane')
-snap.add_task("interp(u, z=0)", scales=1, name='u midplane')
-snap.add_task("interp(v, z=0)", scales=1, name='v midplane')
-snap.add_task("interp(w, z=0)", scales=1, name='w midplane')
-snap.add_task("integ(b, 'z')", name='b integral x4', scales=4)
-
+if threeD:
+    snap.add_task("interp(p, x=0)", scales=1, name='p midplane')
+    snap.add_task("interp(θ, x=0)", scales=1, name='θ midplane')
+    snap.add_task("interp(u, x=0)", scales=1, name='u midplane')
+    snap.add_task("interp(v, x=0)", scales=1, name='v midplane')
+    snap.add_task("interp(w, x=0)", scales=1, name='w midplane')
+else:
+    snap.add_task("p", scales=1, name='p')
+    snap.add_task("θ", scales=1, name='θ')
+    snap.add_task("u", scales=1, name='u')
+    snap.add_task("v", scales=1, name='v')
+    snap.add_task("w", scales=1, name='w')
+check = solver.evaluator.add_file_handler('checkpoints',iter=1,max_writes=10)
+check.add_system(solver.state)
 # CFL
-CFL = flow_tools.CFL(solver, initial_dt=1e-4, cadence=5, safety=1.5,
-                     max_change=1.5, min_change=0.5, max_dt=0.05)
-CFL.add_velocities(('u', 'v', 'w'))
+#CFL = flow_tools.CFL(solver, initial_dt=1e-4, cadence=5, safety=1.5,
+#                     max_change=1.5, min_change=0.5, max_dt=0.05)
+#CFL.add_velocities(('u', 'v', 'w'))
 
 # Flow properties
 flow = flow_tools.GlobalFlowProperty(solver, cadence=10)
-flow.add_property("sqrt(u*u + v*v + w*w) / R", name='Re')
+flow.add_property("0.5*sqrt(u*u + v*v + w*w)", name='Ke')
 
 # Main loop
 end_init_time = time.time()
@@ -113,11 +173,11 @@ try:
     logger.info('Starting loop')
     start_run_time = time.time()
     while solver.ok:
-        dt = CFL.compute_dt()
+        #dt = CFL.compute_dt()
         solver.step(dt)
-        if (solver.iteration-1) % 100 == 0:
+        if (solver.iteration-1) % 1 == 0:
             logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
-            logger.info('Max Re = %f' %flow.max('Re'))
+            logger.info('Max Kin En = %f' %flow.max('Ke'))
 except:
     logger.error('Exception raised, triggering end of main loop.')
     raise
