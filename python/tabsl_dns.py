@@ -11,7 +11,7 @@ from dedalus.tools  import post
 from dedalus.extras import flow_tools
 
 
-#from filter_field_iso import filter_field
+from filter_field_iso import filter_field
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ ny = params.getint('ny')
 nz = params.getint('nz')
 Lx = params.getfloat('Lx')
 Ly = params.getfloat('Ly')
-Lz = params.getfloat('Lz')
+
 Re = params.getfloat('Re')
 Pr = params.getfloat('Pr')
 Ra = params.getfloat('Ra')
@@ -65,34 +65,33 @@ problem.parameters['Ra'] = Ra
 problem.parameters['Re'] = Re
 problem.parameters['Pr'] = Pr
 problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))'
+problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
+#problem.substitutions['Ux'] = '-Pr*Re*exp(-z)'
+#problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
 problem.substitutions['Uz'] = '-Pr'
 problem.substitutions['T0'] = 'Ra*exp(-Pr*z)'
 problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)'
-
-#problem.substitutions['udotgradU_y'] = ''
-#problem.substitutions['udotgradU_z'] = ''
+problem.substitutions['udotgradU_x'] = 'w*Uxz'
 
 if threeD:
-    problem.substitutions['udotgradU_x'] = 'w*dx(Ux)'
     problem.substitutions['Lap(A,Az)'] = 'dx(dx(A)) + dy(dy(A)) + dz(Az)'
     problem.substitutions['Udotgrad(A)'] = 'Ux*dx(A) + Uz*dz(A)'
     problem.substitutions['udotgrad(A,Az)'] = 'u*dx(A) + v*dy(A) + w*Az'
 else:
-    problem.substitutions['udotgradU_x'] = '0'
     problem.substitutions['Lap(A,Az)'] = 'dy(dy(A)) + dz(Az)'
-    problem.substitutions['Udotgrad(A)'] = 'Uz*dz(A)'
+    problem.substitutions['Udotgrad(A,Az)'] = 'Uz*Az'
     problem.substitutions['udotgrad(A,Az)'] = 'v*dy(A) + w*Az'
 
 if threeD:
     problem.add_equation("dx(u) + dy(v) + wz = 0")
-    problem.add_equation("dt(u) + udotgradU_x + Udotgrad(u) - Pr*Lap(u,uz) + Pr*dx(p)     = -udotgrad(u,uz)")
+    problem.add_equation("dt(u) - Pr*Lap(u,uz) + dx(p)     = -udotgrad(u,uz) - udotgradU_x - Udotgrad(u,uz) ")
 else:
     problem.add_equation("dy(v) + wz = 0")
-    problem.add_equation("dt(u) + udotgradU_x + Udotgrad(u) - Pr*Lap(u,uz) = -udotgrad(u,uz)")
+    problem.add_equation("dt(u) - Pr*Lap(u,uz) = -udotgrad(u,uz) - udotgradU_x - Udotgrad(u,uz) ")
 
-problem.add_equation("dt(v) + Udotgrad(v) - Pr*Lap(v,vz) + Pr*dy(p)     = -udotgrad(v,vz)")
-problem.add_equation("dt(w) + Udotgrad(w) - Pr*Lap(w,wz) + Pr*dz(p) - Pr*Ra*θ = -udotgrad(w,wz)")
-problem.add_equation("dt(θ) + w*T0z - Pr*dz(θ) - Lap(θ,θz) = -udotgrad(θ,θz)")
+problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)           = -udotgrad(v,vz) - Udotgrad(v,vz) ")
+problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p) - Pr*Ra*θ = -udotgrad(w,wz) - Udotgrad(w,wz) ")
+problem.add_equation("dt(θ) - Lap(θ,θz) = -w*T0z - udotgrad(θ,θz)")
 
 problem.add_equation("θz - dz(θ) = 0", tau=False)
 problem.add_equation("uz - dz(u) = 0", tau=False)
@@ -106,9 +105,10 @@ problem.add_bc("left(w) = 0", condition="(ny != 0)")
 problem.add_bc("left(p) = 0", condition="(ny == 0)")
 
 # Build solver
-solver = problem.build_solver(de.timesteppers.MCNAB2)
+solver = problem.build_solver(de.timesteppers.SBDF2)
 logger.info('Solver built')
-
+logger.info("L (ky=0) condition number: {:e}".format(np.linalg.cond((dt*solver.pencils[0].L+solver.pencils[0].M).A)));
+logger.info("L (ky=1) condition number: {:e}".format(np.linalg.cond((dt*solver.pencils[1].L+solver.pencils[1].M).A)));
 # Initial conditions
 if threeD:
     z = domain.grid(2)
@@ -125,15 +125,18 @@ noise = rand.standard_normal(gshape)[slices]
 
 ### Initial conditions
 # Thermal: backtground + perturbations damped at wall
+# noise is dense in Laguerres even when damped.
+# instead, for now just do a few sine modes.
+y = domain.grid(0)
+modes = [10,2,3,5]
+noise = np.zeros_like(θ['g'])
 
-gshape = domain.dist.grid_layout.global_shape(scales=1)
-slices = domain.dist.grid_layout.slices(scales=1)
-rand = np.random.RandomState(seed=23)
-noise = rand.standard_normal(gshape)[slices]
+for m in modes:
+    noise += np.sin(2*np.pi*m*y/Ly)
 
+# this mask uses only 2 laguerres!
 mask = z/tau * np.exp(1-z/tau)
-
-θ['g'] = ampl * noise * mask 
+θ['g'] = ampl * noise * mask
 θ.differentiate('z', out=θz)
 
 # Integration parameters
@@ -142,22 +145,27 @@ solver.stop_wall_time = stop_wall_time
 solver.stop_iteration = stop_iteration
 
 # Analysis
-snap = solver.evaluator.add_file_handler('snapshots', sim_dt=0.2, max_writes=10)
-if threeD:
-    snap.add_task("interp(p, x=0)", scales=1, name='p midplane')
-    snap.add_task("interp(θ, x=0)", scales=1, name='θ midplane')
-    snap.add_task("interp(u, x=0)", scales=1, name='u midplane')
-    snap.add_task("interp(v, x=0)", scales=1, name='v midplane')
-    snap.add_task("interp(w, x=0)", scales=1, name='w midplane')
-else:
-    snap.add_task("p", scales=1, name='p')
-    snap.add_task("θ", scales=1, name='θ')
-    snap.add_task("u", scales=1, name='u')
-    snap.add_task("v", scales=1, name='v')
-    snap.add_task("w", scales=1, name='w')
-check = solver.evaluator.add_file_handler('checkpoints',iter=1,max_writes=10)
+# snap = solver.evaluator.add_file_handler('snapshots', sim_dt=0.2, max_writes=10)
+# if threeD:
+#     snap.add_task("interp(p, x=0)", scales=1, name='p midplane')
+#     snap.add_task("interp(θ, x=0)", scales=1, name='θ midplane')
+#     snap.add_task("interp(u, x=0)", scales=1, name='u midplane')
+#     snap.add_task("interp(v, x=0)", scales=1, name='v midplane')
+#     snap.add_task("interp(w, x=0)", scales=1, name='w midplane')
+# else:
+#     snap.add_task("p", scales=1, name='p')
+#     snap.add_task("θ", scales=1, name='θ')
+#     snap.add_task("u", scales=1, name='u')
+#     snap.add_task("v", scales=1, name='v')
+#     snap.add_task("w", scales=1, name='w')
+check = solver.evaluator.add_file_handler('checkpoints',iter=100,max_writes=10)
 check.add_system(solver.state)
+check_c = solver.evaluator.add_file_handler('checkpoints_c',iter=100,max_writes=10)
+check_c.add_system(solver.state, layout='c')
+
 # CFL
+
+## CFL doesn't work for Laguerres yet because they don't have a grid difference method...
 #CFL = flow_tools.CFL(solver, initial_dt=1e-4, cadence=5, safety=1.5,
 #                     max_change=1.5, min_change=0.5, max_dt=0.05)
 #CFL.add_velocities(('u', 'v', 'w'))
@@ -165,6 +173,8 @@ check.add_system(solver.state)
 # Flow properties
 flow = flow_tools.GlobalFlowProperty(solver, cadence=10)
 flow.add_property("0.5*sqrt(u*u + v*v + w*w)", name='Ke')
+
+
 
 # Main loop
 end_init_time = time.time()
@@ -177,7 +187,7 @@ try:
         solver.step(dt)
         if (solver.iteration-1) % 1 == 0:
             logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
-            logger.info('Max Kin En = %f' %flow.max('Ke'))
+            logger.info('Max Kin En = %e' %flow.max('Ke'))
 except:
     logger.error('Exception raised, triggering end of main loop.')
     raise
