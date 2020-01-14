@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 kx = 0.
 ky = 0.
 nz = 500
-Lz = 40
+Lz = 50
 
 Re = 0.
 Pr = 1
@@ -45,14 +45,14 @@ if use_Laguerre:
     problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
     #problem.substitutions['Ux'] = '-Pr*Re*exp(-z)'
     #problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
-    problem.substitutions['T0'] = 'Ra*exp(-Pr*z)'
-    problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)'
+    problem.substitutions['T0'] = 'exp(-Pr*z)'
+    problem.substitutions['T0z'] = '-Ra*exp(-Pr*z)'
 else:
     problem.parameters['Lz'] = Lz
     problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))/(1-exp(-Lz))'
     problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)/(1-exp(-Lz))'
-    problem.substitutions['T0'] = 'Ra*(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
-    problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)/(1-exp(-Pr*Lz))'
+    problem.substitutions['T0'] = '(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
+    problem.substitutions['T0z'] = '-Pr*exp(-Pr*z)/(1-exp(-Pr*Lz))'
 problem.substitutions['udotgradU_x'] = 'w*Uxz'
 
 problem.substitutions['Lap(A,Az)'] = 'dx(dx(A)) + dy(dy(A)) + dz(Az)'
@@ -60,7 +60,6 @@ problem.substitutions['Udotgrad(A,Az)'] = 'Ux*dx(A) + Uz*Az'
 problem.substitutions['udotgrad(A,Az)'] = 'u*dx(A) + v*dy(A) + w*Az'
 
 problem.add_equation("dx(u) + dy(v) + wz = 0")
-#problem.add_equation("dt(u) - Pr*Lap(u,uz) + dx(p) - udotgradU_x - Udotgrad(u,uz) = 0")
 problem.add_equation("dt(u) - Pr*Lap(u,uz) + dx(p) + udotgradU_x + Udotgrad(u,uz) = 0")
 problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)  + Udotgrad(v,vz) = 0.")
 problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  + Udotgrad(w,wz)- Pr*Ra*θ  = 0.")
