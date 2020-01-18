@@ -22,6 +22,7 @@ config_file = Path(sys.argv[-1])
 runconfig = ConfigParser()
 runconfig.read(str(config_file))
 
+datadir = Path("runs") / config_file.stem
 # Parameters
 params = runconfig['params']
 nx = params.getint('nx')
@@ -35,6 +36,7 @@ Pr = params.getfloat('Pr')
 Ra = params.getfloat('Ra')
 tau = params.getfloat('tau') # characteristic scale for mask
 ampl = params.getfloat('ampl') # IC amplitude
+use_Laguerre = params.getboolean('Laguerre')
 
 run_params = runconfig['run']
 stop_wall_time = run_params.getfloat('stop_wall_time')
@@ -51,26 +53,41 @@ else:
 # Create bases and domain
 start_init_time = time.time()
 y_basis = de.Fourier('y', ny, interval=(0, Ly), dealias=3/2)
-z_basis = de.Laguerre('z', nz, dealias=3/2)
+if use_Laguerre:
+    logger.info("Running with Laguerre z-basis")
+    z_basis = de.Laguerre('z', nz, dealias=3/2)
+else:
+    Lz = params.getfloat('Lz')
+    logger.info("Running with Chebyshev z-basis, Lz = {}".format(Lz))
+    z_basis = de.Chebyshev('z', nz, interval=(0,Lz), dealias=3/2)
 bases = [y_basis, z_basis]
 if threeD:
     x_basis = de.Fourier('x', nx, interval=(0, Lx), dealias=3/2)
     bases.insert(0,x_basis)
 
 domain = de.Domain(bases, grid_dtype=np.float64)
+if domain.dist.comm.rank == 0:
+    if not datadir.exists():
+        datadir.mkdir()
 
-# 2D Boussinesq hydrodynamics
 problem = de.IVP(domain, variables=['p','θ','u','v','w','θz','uz','vz','wz'], time='t')
 problem.parameters['Ra'] = Ra
 problem.parameters['Re'] = Re
 problem.parameters['Pr'] = Pr
-problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))'
-problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
-#problem.substitutions['Ux'] = '-Pr*Re*exp(-z)'
-#problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
 problem.substitutions['Uz'] = '-Pr'
-problem.substitutions['T0'] = 'Ra*exp(-Pr*z)'
-problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)'
+if use_Laguerre:
+    problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))'
+    problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
+    #problem.substitutions['Ux'] = '-Pr*Re*exp(-z)'
+    #problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
+    problem.substitutions['T0'] = 'exp(-Pr*z)'
+    problem.substitutions['T0z'] = '-Pr*exp(-Pr*z)'
+else:
+    problem.parameters['Lz'] = Lz
+    problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))/(1-exp(-Lz))'
+    problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)/(1-exp(-Lz))'
+    problem.substitutions['T0'] = '(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
+    problem.substitutions['T0z'] = '-Pr*exp(-Pr*z)/(1-exp(-Pr*Lz))'
 problem.substitutions['udotgradU_x'] = 'w*Uxz'
 
 if threeD:
@@ -87,17 +104,27 @@ if threeD:
     problem.add_equation("dt(u) - Pr*Lap(u,uz) + dx(p)     = -udotgrad(u,uz) - udotgradU_x - Udotgrad(u,uz) ")
 else:
     problem.add_equation("dy(v) + wz = 0")
-    problem.add_equation("dt(u) - Pr*Lap(u,uz) = -udotgrad(u,uz) - udotgradU_x - Udotgrad(u,uz) ")
+    problem.add_equation("dt(u) - Pr*Lap(u,uz) + udotgradU_x + Udotgrad(u,uz) = -udotgrad(u,uz) ")
 
-problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)           = -udotgrad(v,vz) - Udotgrad(v,vz) ")
-problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p) - Pr*Ra*θ = -udotgrad(w,wz) - Udotgrad(w,wz) ")
-problem.add_equation("dt(θ) - Lap(θ,θz) = -w*T0z - udotgrad(θ,θz)")
+problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)  + Udotgrad(v,vz) = -udotgrad(v,vz) ")
+problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  + Udotgrad(w,wz) - Pr*Ra*θ  = -udotgrad(w,wz) ")
+problem.add_equation("dt(θ) - Lap(θ,θz) + Udotgrad(θ,θz) + w*T0z = - udotgrad(θ,θz) ")
 
-problem.add_equation("θz - dz(θ) = 0", tau=False)
-problem.add_equation("uz - dz(u) = 0", tau=False)
-problem.add_equation("vz - dz(v) = 0", tau=False)
-problem.add_equation("wz - dz(w) = 0", tau=False)
-
+if use_Laguerre:
+    problem.add_equation("θz - dz(θ) = 0", tau=False)
+    problem.add_equation("uz - dz(u) = 0", tau=False)
+    problem.add_equation("vz - dz(v) = 0", tau=False)
+    problem.add_equation("wz - dz(w) = 0", tau=False)
+else:
+    problem.add_equation("θz - dz(θ) = 0")
+    problem.add_equation("uz - dz(u) = 0")
+    problem.add_equation("vz - dz(v) = 0")
+    problem.add_equation("wz - dz(w) = 0")
+    problem.add_bc("right(θ) = 0")
+    problem.add_bc("right(u) = 0")
+    problem.add_bc("right(v) = 0")
+    problem.add_bc("right(w) = 0")
+    
 problem.add_bc("left(θ) = 0")
 problem.add_bc("left(u) = 0")
 problem.add_bc("left(v) = 0")
@@ -107,8 +134,9 @@ problem.add_bc("left(p) = 0", condition="(ny == 0)")
 # Build solver
 solver = problem.build_solver(de.timesteppers.SBDF2)
 logger.info('Solver built')
-logger.info("L (ky=0) condition number: {:e}".format(np.linalg.cond((dt*solver.pencils[0].L+solver.pencils[0].M).A)));
-logger.info("L (ky=1) condition number: {:e}".format(np.linalg.cond((dt*solver.pencils[1].L+solver.pencils[1].M).A)));
+logger.info("L (ky=0) condition number: {:e}".format(np.linalg.cond((solver.pencils[0].L+solver.pencils[0].M).A)))
+logger.info("L (ky=1) condition number: {:e}".format(np.linalg.cond((solver.pencils[1].L+solver.pencils[1].M).A)))
+
 # Initial conditions
 if threeD:
     z = domain.grid(2)
@@ -134,10 +162,23 @@ noise = np.zeros_like(θ['g'])
 for m in modes:
     noise += np.sin(2*np.pi*m*y/Ly)
 
+n = 40
+#mask = ((1-np.cos(2*np.pi/Lz * (z+30)))/2)**n
 # this mask uses only 2 laguerres!
-mask = z/tau * np.exp(1-z/tau)
+#mask = z/tau * np.exp(1-z/tau)
+mask = z/tau * (np.exp(1-z/tau) - np.exp(1-Lz/tau))
 θ['g'] = ampl * noise * mask
 θ.differentiate('z', out=θz)
+# w = solver.state['w']
+# v = solver.state['v']
+# wz = solver.state['wz']
+# vz = solver.state['vz']
+# θ.differentiate('z', out=w)
+# θ.differentiate('y', out=v)
+# v['g'] *= -1
+# v.differentiate('z',out=vz)
+# w.differentiate('z',out=wz)
+# θ['g'] = 0.
 
 # Integration parameters
 solver.stop_sim_time = stop_sim_time
@@ -158,11 +199,16 @@ solver.stop_iteration = stop_iteration
 #     snap.add_task("u", scales=1, name='u')
 #     snap.add_task("v", scales=1, name='v')
 #     snap.add_task("w", scales=1, name='w')
-check = solver.evaluator.add_file_handler('checkpoints',iter=100,max_writes=10)
+analyses = []
+check = solver.evaluator.add_file_handler(datadir / Path('checkpoints'),iter=500,max_writes=100)
 check.add_system(solver.state)
-check_c = solver.evaluator.add_file_handler('checkpoints_c',iter=100,max_writes=10)
+analyses.append(check)
+check_c = solver.evaluator.add_file_handler(datadir / Path('checkpoints_c'),iter=500,max_writes=100)
 check_c.add_system(solver.state, layout='c')
-
+analyses.append(check_c)
+timeseries = solver.evaluator.add_file_handler(datadir / Path('timeseries'), iter=100)
+timeseries.add_task("integ(0.5*(u*u + v*v + w*w))", name='KE')
+analyses.append(timeseries)
 # CFL
 
 ## CFL doesn't work for Laguerres yet because they don't have a grid difference method...
@@ -171,10 +217,9 @@ check_c.add_system(solver.state, layout='c')
 #CFL.add_velocities(('u', 'v', 'w'))
 
 # Flow properties
-flow = flow_tools.GlobalFlowProperty(solver, cadence=10)
+flow = flow_tools.GlobalFlowProperty(solver, cadence=100)
 flow.add_property("0.5*sqrt(u*u + v*v + w*w)", name='Ke')
-
-
+flow.add_property("w", name='w')
 
 # Main loop
 end_init_time = time.time()
@@ -185,14 +230,20 @@ try:
     while solver.ok:
         #dt = CFL.compute_dt()
         solver.step(dt)
-        if (solver.iteration-1) % 1 == 0:
+        if (solver.iteration-1) % 100 == 0:
             logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
             logger.info('Max Kin En = %e' %flow.max('Ke'))
+            logger.info('Max w = %e' %flow.max('w'))
 except:
     logger.error('Exception raised, triggering end of main loop.')
     raise
 finally:
     end_run_time = time.time()
+    logger.info('beginning join operation')
+    for task in analyses:
+        logger.info(task.base_path)
+        post.merge_analysis(task.base_path)
+
     logger.info('Iterations: %i' %solver.iteration)
     logger.info('Sim end time: %f' %solver.sim_time)
     logger.info('Run time: %.2f sec' %(end_run_time-start_run_time))
