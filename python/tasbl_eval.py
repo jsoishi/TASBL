@@ -13,14 +13,15 @@ comm = MPI.COMM_WORLD
 logger = logging.getLogger(__name__)
 
 kx = 0.
-ky = 0.
+ky = 0.438
 nz = 500
 Lz = 50
 
 Re = 0.
 Pr = 1
-Ra = 20000
+Ra = 20
 use_Laguerre = False
+find_crit = False
 
 if use_Laguerre:
     logger.info("Running with Laguerre z-basis")
@@ -87,41 +88,44 @@ problem.add_bc("left(w) = 0")
 
 EP = Eigenproblem(problem,sparse=True)
 
-def shim(x,y):
-    gr, indx, freq = EP.growth_rate({"Ra":x,"ky":y})
-    ret = gr+1j*freq
-    if type(ret) == np.ndarray:
-        return ret[0]
-    else:
-        return ret
+if find_crit:
+    def shim(x,y):
+        gr, indx, freq = EP.growth_rate({"Ra":x,"ky":y})
+        ret = gr+1j*freq
+        if type(ret) == np.ndarray:
+            return ret[0]
+        else:
+            return ret
 
-cf = CriticalFinder(shim, comm)
+    cf = CriticalFinder(shim, comm)
 
-# generating the grid is the longest part
-start = time.time()
-mins = np.array((10, 0.25))
-maxs = np.array((50, 0.75))
-nums = np.array((10  , 10))
-try:
-    cf.load_grid('TASBL_Re0_growth_rates.h5')
-except:
-    cf.grid_generator(mins, maxs, nums)
+    # generating the grid is the longest part
+    start = time.time()
+    mins = np.array((10, 0.25))
+    maxs = np.array((50, 0.75))
+    nums = np.array((10  , 10))
+    try:
+        cf.load_grid('TASBL_Re0_growth_rates.h5')
+    except:
+        cf.grid_generator(mins, maxs, nums)
+        if comm.rank == 0:
+            cf.save_grid('TASBL_Re0_growth_rates')
+    end = time.time()
     if comm.rank == 0:
-        cf.save_grid('TASBL_Re0_growth_rates')
-end = time.time()
-if comm.rank == 0:
-    print("grid generation time: {:10.5f} sec".format(end-start))
+        print("grid generation time: {:10.5f} sec".format(end-start))
 
-cf.root_finder()
-crit = cf.crit_finder(find_freq = True)
+    cf.root_finder()
+    crit = cf.crit_finder(find_freq = True)
 
-if comm.rank == 0:
-    print("crit = {}".format(crit))
-    print("critical wavenumber alpha = {:10.5f}".format(crit[1]))
-    print("critical Re = {:10.5f}".format(crit[0]))
-    print("critical omega = {:10.5f}".format(crit[2]))
+    if comm.rank == 0:
+        print("crit = {}".format(crit))
+        print("critical wavenumber alpha = {:10.5f}".format(crit[1]))
+        print("critical Re = {:10.5f}".format(crit[0]))
+        print("critical omega = {:10.5f}".format(crit[2]))
 
-    cf.save_grid('orr_sommerfeld_growth_rates')
-    cf.plot_crit()
-
+        cf.save_grid('orr_sommerfeld_growth_rates')
+        cf.plot_crit()
+else:
+    gr, idx, freq = EP.growth_rate({})
+    print("TASBL growth rate = {0:10.5e}".format(gr))
 
