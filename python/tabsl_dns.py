@@ -74,6 +74,7 @@ problem = de.IVP(domain, variables=['p','θ','u','v','w','θz','uz','vz','wz'], 
 problem.parameters['Ra'] = Ra
 problem.parameters['Re'] = Re
 problem.parameters['Pr'] = Pr
+problem.parameters['Ly'] = Ly
 problem.substitutions['Uz'] = '-Pr'
 if use_Laguerre:
     problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))'
@@ -94,10 +95,15 @@ if threeD:
     problem.substitutions['Lap(A,Az)'] = 'dx(dx(A)) + dy(dy(A)) + dz(Az)'
     problem.substitutions['Udotgrad(A)'] = 'Ux*dx(A) + Uz*dz(A)'
     problem.substitutions['udotgrad(A,Az)'] = 'u*dx(A) + v*dy(A) + w*Az'
+    problem.substitutions['plane_avg(A)'] = 'integ(A,"x","y")/(Lx*Ly)'
 else:
     problem.substitutions['Lap(A,Az)'] = 'dy(dy(A)) + dz(Az)'
     problem.substitutions['Udotgrad(A,Az)'] = 'Uz*Az'
     problem.substitutions['udotgrad(A,Az)'] = 'v*dy(A) + w*Az'
+    problem.substitutions['plane_avg(A)'] = 'integ(A,"y")/Ly'
+
+problem.substitutions['Nu'] = '(plane_avg((-Pr + w)*(θ + T0)) - dz(plane_avg((θ + T0))))/(Pr*Ra)'
+
 
 if threeD:
     problem.add_equation("dx(u) + dy(v) + wz = 0")
@@ -208,6 +214,7 @@ check_c.add_system(solver.state, layout='c')
 analyses.append(check_c)
 timeseries = solver.evaluator.add_file_handler(datadir / Path('timeseries'), iter=100)
 timeseries.add_task("integ(0.5*(u*u + v*v + w*w))", name='KE')
+timeseries.add_task("integ(Nu,'y')",name="Nu")
 analyses.append(timeseries)
 # CFL
 
