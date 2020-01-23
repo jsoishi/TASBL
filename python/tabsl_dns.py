@@ -39,6 +39,7 @@ ampl = params.getfloat('ampl') # IC amplitude
 use_Laguerre = params.getboolean('Laguerre')
 
 run_params = runconfig['run']
+restart = run_params.get('restart_file')
 stop_wall_time = run_params.getfloat('stop_wall_time')
 stop_sim_time = run_params.getfloat('stop_sim_time')
 stop_iteration = run_params.getint('stop_iteration')
@@ -143,48 +144,52 @@ logger.info('Solver built')
 logger.info("L (ky=0) condition number: {:e}".format(np.linalg.cond((solver.pencils[0].L+solver.pencils[0].M).A)))
 logger.info("L (ky=1) condition number: {:e}".format(np.linalg.cond((solver.pencils[1].L+solver.pencils[1].M).A)))
 
-# Initial conditions
-if threeD:
-    z = domain.grid(2)
+if restart:
+    logger.info("Restarting from file {}".format(restart))
+    write, last_dt = solver.load_state(restart, -1)
 else:
-    z = domain.grid(1)
-θ = solver.state['θ']
-θz = solver.state['θz']
+    # Initial conditions
+    if threeD:
+        z = domain.grid(2)
+    else:
+        z = domain.grid(1)
+    θ = solver.state['θ']
+    θz = solver.state['θz']
 
-# Random perturbations, initialized globally for same results in parallel
-gshape = domain.dist.grid_layout.global_shape(scales=1)
-slices = domain.dist.grid_layout.slices(scales=1)
-rand = np.random.RandomState(seed=23)
-noise = rand.standard_normal(gshape)[slices]
+    # Random perturbations, initialized globally for same results in parallel
+    gshape = domain.dist.grid_layout.global_shape(scales=1)
+    slices = domain.dist.grid_layout.slices(scales=1)
+    rand = np.random.RandomState(seed=23)
+    noise = rand.standard_normal(gshape)[slices]
 
-### Initial conditions
-# Thermal: backtground + perturbations damped at wall
-# noise is dense in Laguerres even when damped.
-# instead, for now just do a few sine modes.
-y = domain.grid(0)
-modes = [10,2,3,5]
-noise = np.zeros_like(θ['g'])
+    ### Initial conditions
+    # Thermal: backtground + perturbations damped at wall
+    # noise is dense in Laguerres even when damped.
+    # instead, for now just do a few sine modes.
+    y = domain.grid(0)
+    modes = [10,2,3,5]
+    noise = np.zeros_like(θ['g'])
 
-for m in modes:
-    noise += np.sin(2*np.pi*m*y/Ly)
+    for m in modes:
+        noise += np.sin(2*np.pi*m*y/Ly)
 
-n = 40
-#mask = ((1-np.cos(2*np.pi/Lz * (z+30)))/2)**n
-# this mask uses only 2 laguerres!
-#mask = z/tau * np.exp(1-z/tau)
-mask = z/tau * (np.exp(1-z/tau) - np.exp(1-Lz/tau))
-θ['g'] = ampl * noise * mask
-θ.differentiate('z', out=θz)
-# w = solver.state['w']
-# v = solver.state['v']
-# wz = solver.state['wz']
-# vz = solver.state['vz']
-# θ.differentiate('z', out=w)
-# θ.differentiate('y', out=v)
-# v['g'] *= -1
-# v.differentiate('z',out=vz)
-# w.differentiate('z',out=wz)
-# θ['g'] = 0.
+    n = 40
+    #mask = ((1-np.cos(2*np.pi/Lz * (z+30)))/2)**n
+    # this mask uses only 2 laguerres!
+    #mask = z/tau * np.exp(1-z/tau)
+    mask = z/tau * (np.exp(1-z/tau) - np.exp(1-Lz/tau))
+    θ['g'] = ampl * noise * mask
+    θ.differentiate('z', out=θz)
+    # w = solver.state['w']
+    # v = solver.state['v']
+    # wz = solver.state['wz']
+    # vz = solver.state['vz']
+    # θ.differentiate('z', out=w)
+    # θ.differentiate('y', out=v)
+    # v['g'] *= -1
+    # v.differentiate('z',out=vz)
+    # w.differentiate('z',out=wz)
+    # θ['g'] = 0.
 
 # Integration parameters
 solver.stop_sim_time = stop_sim_time
