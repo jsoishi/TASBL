@@ -3,21 +3,21 @@ from configparser import ConfigParser
 from pathlib import Path
 import sys
 import logging
-
 import numpy as np
 
 import dedalus.public as de
 from dedalus.tools  import post
 from dedalus.extras import flow_tools
 
-
 from filter_field_iso import filter_field
 
 logger = logging.getLogger(__name__)
+debug = False
 
 # Parses .cfg filename passed to script
 config_file = Path(sys.argv[-1])
 
+logger.info("Running with config file {}".format(str(config_file)))
 # Parse .cfg file to set global parameters for script
 runconfig = ConfigParser()
 runconfig.read(str(config_file))
@@ -34,6 +34,7 @@ Ly = params.getfloat('Ly')
 Re = params.getfloat('Re')
 Pr = params.getfloat('Pr')
 Ra = params.getfloat('Ra')
+logger.info("Re = {:f}, Pr = {:f}, Ra = {:f}".format(Re, Pr, Ra))
 tau = params.getfloat('tau') # characteristic scale for mask
 ampl = params.getfloat('ampl') # IC amplitude
 use_Laguerre = params.getboolean('Laguerre')
@@ -141,8 +142,9 @@ problem.add_bc("left(p) = 0", condition="(ny == 0)")
 # Build solver
 solver = problem.build_solver(de.timesteppers.SBDF2)
 logger.info('Solver built')
-logger.info("L (ky=0) condition number: {:e}".format(np.linalg.cond((solver.pencils[0].L+solver.pencils[0].M).A)))
-logger.info("L (ky=1) condition number: {:e}".format(np.linalg.cond((solver.pencils[1].L+solver.pencils[1].M).A)))
+if debug:
+    logger.info("L (ky=0) condition number: {:e}".format(np.linalg.cond((solver.pencils[0].L+solver.pencils[0].M).A)))
+    logger.info("L (ky=1) condition number: {:e}".format(np.linalg.cond((solver.pencils[1].L+solver.pencils[1].M).A)))
 
 if restart:
     logger.info("Restarting from file {}".format(restart))
