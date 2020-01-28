@@ -38,6 +38,7 @@ logger.info("Re = {:f}, Pr = {:f}, Ra = {:f}".format(Re, Pr, Ra))
 tau = params.getfloat('tau') # characteristic scale for mask
 ampl = params.getfloat('ampl') # IC amplitude
 use_Laguerre = params.getboolean('Laguerre')
+stretch = params.getfloat('stretch')
 
 run_params = runconfig['run']
 restart = run_params.get('restart_file')
@@ -57,7 +58,7 @@ start_init_time = time.time()
 y_basis = de.Fourier('y', ny, interval=(0, Ly), dealias=3/2)
 if use_Laguerre:
     logger.info("Running with Laguerre z-basis")
-    z_basis = de.Laguerre('z', nz, dealias=3/2)
+    z_basis = de.Laguerre('z', nz, stretch=stretch, dealias=3/2)
 else:
     Lz = params.getfloat('Lz')
     logger.info("Running with Chebyshev z-basis, Lz = {}".format(Lz))
@@ -109,14 +110,25 @@ problem.substitutions['Nu'] = '(plane_avg((-Pr + w)*(θ + T0)) - dz(plane_avg((�
 
 if threeD:
     problem.add_equation("dx(u) + dy(v) + wz = 0")
-    problem.add_equation("dt(u) - Pr*Lap(u,uz) + dx(p)     = -udotgrad(u,uz) - udotgradU_x - Udotgrad(u,uz) ")
+    if use_Laguerre:
+        problem.add_equation("dt(u) - Pr*Lap(u,uz) + dx(p)     = -udotgrad(u,uz) - udotgradU_x - Udotgrad(u,uz) ")
+    else:
+        problem.add_equation("dt(u) - Pr*Lap(u,uz) + dx(p) + udotgradU_x + Udotgrad(u,uz)  = -udotgrad(u,uz) ")
 else:
     problem.add_equation("dy(v) + wz = 0")
-    problem.add_equation("dt(u) - Pr*Lap(u,uz) + udotgradU_x + Udotgrad(u,uz) = -udotgrad(u,uz) ")
+    if use_Laguerre:
+        problem.add_equation("dt(u) - Pr*Lap(u,uz) = -udotgrad(u,uz) - udotgradU_x - Udotgrad(u,uz) ")
+    else:
+        problem.add_equation("dt(u) - Pr*Lap(u,uz) + udotgradU_x + Udotgrad(u,uz) = -udotgrad(u,uz) ")
 
-problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)  + Udotgrad(v,vz) = -udotgrad(v,vz) ")
-problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  + Udotgrad(w,wz) - Pr*Ra*θ  = -udotgrad(w,wz) ")
-problem.add_equation("dt(θ) - Lap(θ,θz) + Udotgrad(θ,θz) + w*T0z = - udotgrad(θ,θz) ")
+if use_Laguerre:
+    problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)             = -udotgrad(v,vz) - Udotgrad(v,vz) ")
+    problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  - Pr*Ra*θ  = -udotgrad(w,wz) - Udotgrad(w,wz) ")
+    problem.add_equation("dt(θ) - Lap(θ,θz)                        = -udotgrad(θ,θz) - Udotgrad(θ,θz) - w*T0z ")
+else:
+    problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)  + Udotgrad(v,vz) = -udotgrad(v,vz) ")
+    problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  + Udotgrad(w,wz) - Pr*Ra*θ  = -udotgrad(w,wz) ")
+    problem.add_equation("dt(θ) - Lap(θ,θz) + Udotgrad(θ,θz) + w*T0z = - udotgrad(θ,θz) ")
 
 if use_Laguerre:
     problem.add_equation("θz - dz(θ) = 0", tau=False)
