@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 kx = 0.
 ky = 0.438
-nz = 500
+nz = 250
 Lz = 50
 
 Re = 0.
@@ -37,8 +37,7 @@ problem.parameters['Re'] = Re
 problem.parameters['Pr'] = Pr
 problem.parameters['kx'] = kx
 problem.parameters['ky'] = ky
-problem.substitutions['Uz'] = '-Pr'
-problem.substitutions['dt(A)'] = 'sigma*A'
+problem.substitutions['dt(A)'] = '2*sigma*A'
 problem.substitutions['dx(A)'] = '-1j*kx*A'
 problem.substitutions['dy(A)'] = '-1j*ky*A'
 if use_Laguerre:
@@ -52,19 +51,17 @@ else:
     problem.parameters['Lz'] = Lz
     problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))/(1-exp(-Lz))'
     problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)/(1-exp(-Lz))'
-    problem.substitutions['T0'] = '(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
-    problem.substitutions['T0z'] = '-Pr*exp(-Pr*z)/(1-exp(-Pr*Lz))'
-problem.substitutions['udotgradU_x'] = 'w*Uxz'
+    problem.substitutions['T0'] = 'Ra*(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
+    problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)/(1-exp(-Pr*Lz))'
 
 problem.substitutions['Lap(A,Az)'] = 'dx(dx(A)) + dy(dy(A)) + dz(Az)'
-problem.substitutions['Udotgrad(A,Az)'] = 'Ux*dx(A) + Uz*Az'
-problem.substitutions['udotgrad(A,Az)'] = 'u*dx(A) + v*dy(A) + w*Az'
 
 problem.add_equation("dx(u) + dy(v) + wz = 0")
-problem.add_equation("dt(u) + Uxz*w/Pr + dx(p) - Lap(u,uz) = 0")
-problem.add_equation("dt(v) + dy(p) - Lap(v,vz) = 0.")
-problem.add_equation("dt(w) + Uxz*u/Pr + θ*T0z + dz(p) - Ra*θ - Lap(w,wz)  = 0.")
-problem.add_equation("dt(θ) + w*T0z - Ra*w - Lap(θ,θz) = 0.")
+problem.add_equation("dt(u)/(Pr*Ra) - Uxz*w/(Pr*Ra) - dx(p) + 2*Lap(u,uz)/Ra = 0")
+problem.add_equation("dt(v)/(Pr*Ra)                 - dy(p) + 2*Lap(v,vz)/Ra = 0.")
+problem.add_equation("dt(w)/(Pr*Ra) - Uxz*u/(Pr*Ra) - dz(p) + 2*Lap(w,wz)/Ra - θ*T0z + θ = 0.")
+
+problem.add_equation("dt(θ) - w*T0z + w + 2*Lap(θ,θz) = 0.")
 
 if use_Laguerre:
     problem.add_equation("θz - dz(θ) = 0", tau=False)
@@ -105,11 +102,11 @@ if find_crit:
     maxs = np.array((20, 0.75))
     nums = np.array((10  , 10))
     try:
-        cf.load_grid('TASBL_enstab_Re0.h5')
+        cf.load_grid('TASBL_enstab_primative_Re0.h5')
     except:
         cf.grid_generator(mins, maxs, nums)
         if comm.rank == 0:
-            cf.save_grid('TASBL_Re0_growth_rates')
+            cf.save_grid('TASBL_enstab_primative_Re0')
     end = time.time()
     if comm.rank == 0:
         print("grid generation time: {:10.5f} sec".format(end-start))
