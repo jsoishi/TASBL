@@ -38,8 +38,8 @@ problem.parameters['Pr'] = Pr
 problem.parameters['kx'] = kx
 problem.parameters['ky'] = ky
 problem.substitutions['dt(A)'] = '2*sigma*A'
-problem.substitutions['dx(A)'] = '-1j*kx*A'
-problem.substitutions['dy(A)'] = '-1j*ky*A'
+problem.substitutions['dx(A)'] = '1j*kx*A'
+problem.substitutions['dy(A)'] = '1j*ky*A'
 if use_Laguerre:
     problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))'
     problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
