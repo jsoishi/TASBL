@@ -190,8 +190,10 @@ else:
     n = 40
     #mask = ((1-np.cos(2*np.pi/Lz * (z+30)))/2)**n
     # this mask uses only 2 laguerres!
-    #mask = z/tau * np.exp(1-z/tau)
-    mask = z/tau * (np.exp(1-z/tau) - np.exp(1-Lz/tau))
+    if use_Laguerre:
+        mask = z/tau * np.exp(1-z/tau)
+    else:
+        mask = z/tau * (np.exp(1-z/tau) - np.exp(1-Lz/tau))
     θ['g'] = ampl * noise * mask
     θ.differentiate('z', out=θz)
     # w = solver.state['w']
