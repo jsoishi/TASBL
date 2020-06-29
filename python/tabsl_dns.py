@@ -235,7 +235,7 @@ check_c.add_system(solver.state, layout='c')
 analyses.append(check_c)
 timeseries = solver.evaluator.add_file_handler(datadir / Path('timeseries'), iter=100)
 timeseries.add_task("integ(0.5*(u*u + v*v + w*w))", name='KE')
-timeseries.add_task("integ(Nu,'y')",name="Nu")
+timeseries.add_task("integ(Nu,'z')",name="Nu")
 analyses.append(timeseries)
 # CFL
 
