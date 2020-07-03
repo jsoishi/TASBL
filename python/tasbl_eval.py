@@ -19,9 +19,9 @@ Lz = 50
 
 Re = 0.
 Pr = 1
-Ra = 20
+Ra = 25
 use_Laguerre = False
-find_crit = False
+find_crit = True
 
 if use_Laguerre:
     logger.info("Running with Laguerre z-basis")
@@ -29,7 +29,7 @@ if use_Laguerre:
 else:
     z_basis = de.Chebyshev('z', nz, interval=(0,Lz), dealias=3/2)
 
-domain = de.Domain([z_basis])
+domain = de.Domain([z_basis],comm=MPI.COMM_SELF)
 
 problem = de.EVP(domain, variables=['p','θ','u','v','w','θz','uz','vz','wz'], eigenvalue='sigma')
 problem.parameters['Ra'] = Ra
@@ -46,14 +46,14 @@ if use_Laguerre:
     problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
     #problem.substitutions['Ux'] = '-Pr*Re*exp(-z)'
     #problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
-    problem.substitutions['T0'] = 'exp(-Pr*z)'
-    problem.substitutions['T0z'] = '-Ra*exp(-Pr*z)'
+    problem.substitutions['T0'] = 'Ra*exp(-Pr*z)'
+    problem.substitutions['T0z'] = '-Ra*Pr*exp(-Pr*z)'
 else:
     problem.parameters['Lz'] = Lz
     problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))/(1-exp(-Lz))'
     problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)/(1-exp(-Lz))'
-    problem.substitutions['T0'] = '(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
-    problem.substitutions['T0z'] = '-Pr*exp(-Pr*z)/(1-exp(-Pr*Lz))'
+    problem.substitutions['T0'] = 'Ra*(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
+    problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)/(1-exp(-Pr*Lz))'
 problem.substitutions['udotgradU_x'] = 'w*Uxz'
 
 problem.substitutions['Lap(A,Az)'] = 'dx(dx(A)) + dy(dy(A)) + dz(Az)'
@@ -63,7 +63,7 @@ problem.substitutions['udotgrad(A,Az)'] = 'u*dx(A) + v*dy(A) + w*Az'
 problem.add_equation("dx(u) + dy(v) + wz = 0")
 problem.add_equation("dt(u) - Pr*Lap(u,uz) + dx(p) + udotgradU_x + Udotgrad(u,uz) = 0")
 problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)  + Udotgrad(v,vz) = 0.")
-problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  + Udotgrad(w,wz)- Pr*Ra*θ  = 0.")
+problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  + Udotgrad(w,wz)- Pr*θ  = 0.")
 problem.add_equation("dt(θ) - Lap(θ,θz) + Udotgrad(θ,θz) + w*T0z = 0.")
 
 if use_Laguerre:

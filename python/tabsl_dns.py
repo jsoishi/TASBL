@@ -84,14 +84,14 @@ if use_Laguerre:
     problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
     #problem.substitutions['Ux'] = '-Pr*Re*exp(-z)'
     #problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)'
-    problem.substitutions['T0'] = 'exp(-Pr*z)'
-    problem.substitutions['T0z'] = '-Pr*exp(-Pr*z)'
+    problem.substitutions['T0'] = 'Ra*exp(-Pr*z)'
+    problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)'
 else:
     problem.parameters['Lz'] = Lz
     problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))/(1-exp(-Lz))'
     problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)/(1-exp(-Lz))'
-    problem.substitutions['T0'] = '(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
-    problem.substitutions['T0z'] = '-Pr*exp(-Pr*z)/(1-exp(-Pr*Lz))'
+    problem.substitutions['T0'] = 'Ra*(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
+    problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)/(1-exp(-Pr*Lz))'
 problem.substitutions['udotgradU_x'] = 'w*Uxz'
 
 if threeD:
@@ -123,11 +123,11 @@ else:
 
 if use_Laguerre:
     problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)             = -udotgrad(v,vz) - Udotgrad(v,vz) ")
-    problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  - Pr*Ra*θ  = -udotgrad(w,wz) - Udotgrad(w,wz) ")
+    problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  - Pr*θ  = -udotgrad(w,wz) - Udotgrad(w,wz) ")
     problem.add_equation("dt(θ) - Lap(θ,θz)                        = -udotgrad(θ,θz) - Udotgrad(θ,θz) - w*T0z ")
 else:
     problem.add_equation("dt(v) - Pr*Lap(v,vz) + dy(p)  + Udotgrad(v,vz) = -udotgrad(v,vz) ")
-    problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  + Udotgrad(w,wz) - Pr*Ra*θ  = -udotgrad(w,wz) ")
+    problem.add_equation("dt(w) - Pr*Lap(w,wz) + dz(p)  + Udotgrad(w,wz) - Pr*θ  = -udotgrad(w,wz) ")
     problem.add_equation("dt(θ) - Lap(θ,θz) + Udotgrad(θ,θz) + w*T0z = - udotgrad(θ,θz) ")
 
 if use_Laguerre:

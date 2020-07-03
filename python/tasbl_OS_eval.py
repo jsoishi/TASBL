@@ -23,7 +23,7 @@ Ra = 20000
 
 z_basis = de.Chebyshev('z', nz, interval=(0,Lz), dealias=3/2)
 
-domain = de.Domain([z_basis])
+domain = de.Domain([z_basis], comm=MPI.COMM_SELF)
 
 problem = de.EVP(domain, variables=['θ','Ψ','phi','θz','Ψz','phiz','phizz','phizzz'], eigenvalue='sigma')
 problem.parameters['Ra'] = Ra
@@ -37,11 +37,11 @@ problem.parameters['Lz'] = Lz
 problem.substitutions['Ux'] = 'Pr*Re*(1-exp(-z))/(1-exp(-Lz))'
 problem.substitutions['Uxz'] = 'Pr*Re*exp(-z)/(1-exp(-Lz))'
 problem.substitutions['Uxzz'] = '-Pr*Re*exp(-z)/(1-exp(-Lz))'
-problem.substitutions['T0'] = '(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
-problem.substitutions['T0z'] = '-Pr*exp(-Pr*z)/(1-exp(-Pr*Lz))'
+problem.substitutions['T0'] = 'Ra*(exp(-Pr*z) - exp(-Pr*Lz))/(1-exp(-Pr*Lz))'
+problem.substitutions['T0z'] = '-Pr*Ra*exp(-Pr*z)/(1-exp(-Pr*Lz))'
 
 problem.add_equation('sigma*Ψ/Pr + 1j*kx*Ux*Ψ/Pr - Ψz - dz(Ψz) + k2*Ψ + 1j*ky*Uxz*phi/Pr = 0')
-problem.add_equation('sigma*phizz/Pr + 1j*kx*Ux*phizz/Pr - phizzz - k2*sigma*phi/Pr - 1j*kx*k2*Ux*phi/Pr + k2*phiz - 1j*kx*Uxzz*phi/Pr - dz(phizzz) + 2*k2*phizz - k2*k2*phi + Ra*θ = 0')
+problem.add_equation('sigma*phizz/Pr + 1j*kx*Ux*phizz/Pr - phizzz - k2*sigma*phi/Pr - 1j*kx*k2*Ux*phi/Pr + k2*phiz - 1j*kx*Uxzz*phi/Pr - dz(phizzz) + 2*k2*phizz - k2*k2*phi + θ = 0')
 problem.add_equation('sigma*θ + 1j*kx*Ux*θ - Pr*θz - dz(θz) + k2*θ + k2*T0z*phi = 0.')
 
 problem.add_equation("θz - dz(θ) = 0")
