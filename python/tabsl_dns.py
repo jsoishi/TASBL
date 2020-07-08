@@ -105,7 +105,8 @@ else:
     problem.substitutions['udotgrad(A,Az)'] = 'v*dy(A) + w*Az'
     problem.substitutions['plane_avg(A)'] = 'integ(A,"y")/Ly'
 
-problem.substitutions['Nu'] = '(plane_avg((-Pr + w)*(θ + T0)) - dz(plane_avg((θ + T0))))/(Pr*Ra)'
+if not use_Laguerre:
+    problem.substitutions['Nu'] = '(plane_avg((-Pr + w)*(θ + T0)) - dz(plane_avg((θ + T0))))/(Pr*Ra)'
 
 
 if threeD:
@@ -235,7 +236,8 @@ check_c.add_system(solver.state, layout='c')
 analyses.append(check_c)
 timeseries = solver.evaluator.add_file_handler(datadir / Path('timeseries'), iter=100)
 timeseries.add_task("integ(0.5*(u*u + v*v + w*w))", name='KE')
-timeseries.add_task("integ(Nu,'z')",name="Nu")
+if not use_Laguerre:
+    timeseries.add_task("integ(Nu,'z')",name="Nu")
 analyses.append(timeseries)
 # CFL
 
